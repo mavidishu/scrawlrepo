@@ -1,0 +1,36 @@
+{
+  "name": "github-scrawler",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "author": "Dishu Mavi",
+  "description": "AI-powered GitHub repository intelligence platform",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:api": "npm run build:packages && npm run dev --workspace=apps/api",
+    "dev:web": "npm run dev --workspace=apps/web",
+    "build:packages": "npm run build --workspace=packages/shared && npm run build --workspace=packages/crawler --workspace=packages/parser --workspace=packages/embeddings",
+    "build:apps": "npm run build --workspace=apps/api --workspace=apps/web",
+    "build:api": "npm run build:packages && npm run build --workspace=apps/api",
+    "build:web": "npm run build --workspace=apps/web",
+    "lint": "eslint . --ext .ts,.tsx",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
+    "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist packages/*/dist",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "db:migrate": "npm run migration:run --workspace=apps/api"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "eslint": "^8.56.0",
+    "prettier": "^3.2.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
