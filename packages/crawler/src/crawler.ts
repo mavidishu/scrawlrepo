@@ -1,4 +1,5 @@
 import { Octokit } from '@octokit/rest';
+import JSZip from 'jszip';
 import { GITHUB_CONFIG, IGNORED_PATTERNS, isCodeFile } from '@scrawler/shared';
 import { RateLimiter } from './rate-limiter';
 import type {
@@ -147,9 +148,78 @@ export class GitHubCrawler {
   }
 
   /**
-   * Fetch multiple files in parallel with rate limiting
+   * Fetch multiple files by downloading the repository archive (ZIP)
+   * This is much more efficient for rate limits than individual file requests
    */
   async getFilesContent(
+    owner: string,
+    repo: string,
+    paths: string[],
+    branch?: string,
+    onProgress?: (processed: number, total: number) => void
+  ): Promise<FileContent[]> {
+    const targetBranch = branch || (await this.getDefaultBranch(owner, repo));
+    
+    console.log(`Downloading archive for ${owner}/${repo} (${targetBranch})...`);
+    
+    try {
+      // Download ZIP archive
+      const response = await this.rateLimiter.schedule(() => 
+        this.octokit.repos.downloadZipballArchive({
+          owner,
+          repo,
+          ref: targetBranch,
+        })
+      );
+
+      // In some Octokit versions, data might be in different formats
+      const zipData = response.data as any;
+      const zip = await JSZip.loadAsync(zipData);
+      
+      const files: FileContent[] = [];
+      
+      // The ZIP entries are prefixed with "owner-repo-sha/"
+      // We need to find the root directory name
+      const rootDir = Object.keys(zip.files).find(f => f.endsWith('/') && f.split('/').length === 2)?.split('/')[0] 
+                   || Object.keys(zip.files)[0].split('/')[0];
+      
+      let processed = 0;
+      const totalToProcess = paths.length;
+
+      for (const path of paths) {
+        const zipPath = `${rootDir}/${path}`;
+        const file = zip.files[zipPath];
+        
+        if (file && !file.dir) {
+          const content = await file.async('string');
+          
+          files.push({
+            path,
+            content,
+            size: content.length,
+            sha: '', // SHA not directly available in ZIP
+            encoding: 'utf-8',
+          });
+        }
+        
+        processed++;
+        if (processed % 10 === 0 || processed === totalToProcess) {
+          onProgress?.(processed, totalToProcess);
+        }
+      }
+
+      return files;
+    } catch (error) {
+      console.error('Failed to download or extract archive:', error);
+      // Fallback to individual requests if archive fails
+      return this.getFilesContentLegacy(owner, repo, paths, targetBranch, onProgress);
+    }
+  }
+
+  /**
+   * Individual file fetching (Legacy/Fallback)
+   */
+  private async getFilesContentLegacy(
     owner: string,
     repo: string,
     paths: string[],

@@ -50,7 +50,7 @@ export class RepoService {
     const saved = await this.repoRepository.save(repository);
 
     // Queue indexing job
-    await this.indexingQueue.add(
+    const job = await this.indexingQueue.add(
       'index-repository',
       {
         repositoryId: saved.id,
@@ -67,8 +67,12 @@ export class RepoService {
       }
     );
 
-    return saved;
+    // Save job ID
+    await this.repoRepository.update(saved.id, { jobId: job.id });
+
+    return { ...saved, jobId: job.id } as RepositoryEntity;
   }
+
 
   async findAll(pagination: PaginationDto) {
     const { page = 1, limit = 20 } = pagination;
@@ -144,18 +148,29 @@ export class RepoService {
   async getStatus(id: string) {
     const repository = await this.findOne(id);
 
-    // Get job status from queue
-    const jobs = await this.indexingQueue.getJobs(['active', 'waiting', 'delayed']);
-    const job = jobs.find((j) => j.data.repositoryId === id);
+    // Get job status from queue directly if jobId exists
+    let jobProgress = 0;
+    if (repository.jobId) {
+      const job = await this.indexingQueue.getJob(repository.jobId);
+      const progress = job?.progress;
+      if (typeof progress === 'number') {
+        jobProgress = progress;
+      } else if (typeof progress === 'object' && progress !== null) {
+        // Handle object progress if needed, though we usually store a percentage number
+        jobProgress = (progress as any).percentage ?? 0;
+      }
+    }
+
 
     return {
       repositoryId: id,
       status: repository.status,
-      progress: job?.progress ?? (repository.status === 'ready' ? 100 : 0),
+      progress: repository.status === 'ready' ? 100 : jobProgress,
       fileCount: repository.fileCount,
       indexedAt: repository.indexedAt,
     };
   }
+
 
   async triggerReindex(id: string): Promise<void> {
     const repository = await this.findOne(id);
@@ -171,7 +186,7 @@ export class RepoService {
     });
 
     // Queue new indexing job
-    await this.indexingQueue.add(
+    const job = await this.indexingQueue.add(
       'index-repository',
       {
         repositoryId: id,
@@ -187,5 +202,9 @@ export class RepoService {
         },
       }
     );
+
+    // Save job ID
+    await this.repoRepository.update(id, { jobId: job.id });
   }
+
 }

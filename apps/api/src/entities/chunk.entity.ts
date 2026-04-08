@@ -35,7 +35,7 @@ export class ChunkEntity {
   endLine: number;
 
   // Note: pgvector column - we'll handle this specially in queries
-  @Column({ type: 'text', nullable: true, select: false })
+  @Column({ type: 'vector', nullable: true, select: false })
   embedding: string | null;
 
   @Column({ type: 'jsonb', default: {} })

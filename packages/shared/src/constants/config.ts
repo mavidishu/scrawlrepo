@@ -23,7 +23,7 @@ export const EMBEDDING_CONFIG = {
 // LLM configuration
 export const LLM_CONFIG = {
   // Default model for chat
-  MODEL: 'gpt-4-turbo-preview',
+  MODEL: 'gpt-3.5-turbo',
   // Max tokens for response
   MAX_TOKENS: 2000,
   // Temperature for response generation
