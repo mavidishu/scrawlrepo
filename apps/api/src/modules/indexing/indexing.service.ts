@@ -94,135 +94,116 @@ export class IndexingService {
 
       this.logger.log(`Fetched ${fileContents.length} file contents`);
 
-      // Step 3: Parse files and create chunks
-      onProgress?.({
-        stage: 'parsing',
-        current: 0,
-        total: fileContents.length,
-        message: 'Parsing files...',
-      });
+      // Step 3: Parse files, create chunks, generate embeddings, and store in batches
+      this.logger.log(`Processing ${fileContents.length} files...`);
+      
+      let totalFilesProcessed = 0;
+      let totalChunksCreated = 0;
+      const fileBatchSize = 20; // Process 20 files at a time to keep transactions short
 
-      const allChunks: Array<{
-        fileId: string;
-        content: string;
-        startLine: number;
-        endLine: number;
-        metadata: Record<string, unknown>;
-      }> = [];
+      for (let i = 0; i < fileContents.length; i += fileBatchSize) {
+        const fileBatch = fileContents.slice(i, i + fileBatchSize);
+        const batchChunks: Array<{
+          fileId: string;
+          content: string;
+          startLine: number;
+          endLine: number;
+          metadata: Record<string, unknown>;
+        }> = [];
 
-      // Use a transaction for file and chunk creation
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
-      await queryRunner.startTransaction();
+        // Transaction for this batch of files
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
 
-      try {
-        for (let i = 0; i < fileContents.length; i++) {
-          const fileContent = fileContents[i];
-          const parsed = parser.parse(fileContent.path, fileContent.content);
+        try {
+          for (const fileContent of fileBatch) {
+            const parsed = parser.parse(fileContent.path, fileContent.content);
 
-          // Create file record
-          const fileEntity = queryRunner.manager.create(FileEntity, {
-            repositoryId,
-            path: fileContent.path,
-            language: parsed.language,
-            size: fileContent.size,
-            sha: fileContent.sha,
-          });
-
-          const savedFile = await queryRunner.manager.save(fileEntity);
-
-          // Prepare chunks for this file
-          for (const chunk of parsed.chunks) {
-            allChunks.push({
-              fileId: savedFile.id,
-              content: chunk.content,
-              startLine: chunk.startLine,
-              endLine: chunk.endLine,
-              metadata: {
-                ...chunk.metadata,
-                filePath: fileContent.path,
-              },
+            // Create file record
+            const fileEntity = queryRunner.manager.create(FileEntity, {
+              repositoryId,
+              path: fileContent.path,
+              language: parsed.language,
+              size: fileContent.size,
+              sha: fileContent.sha,
             });
+
+            const savedFile = await queryRunner.manager.save(fileEntity);
+
+            // Prepare chunks for this file
+            for (const chunk of parsed.chunks) {
+              batchChunks.push({
+                fileId: savedFile.id,
+                content: chunk.content,
+                startLine: chunk.startLine,
+                endLine: chunk.endLine,
+                metadata: {
+                  ...chunk.metadata,
+                  filePath: fileContent.path,
+                },
+              });
+            }
           }
 
-          onProgress?.({
-            stage: 'parsing',
-            current: i + 1,
-            total: fileContents.length,
-            message: `Parsing: ${fileContent.path}`,
+          await queryRunner.commitTransaction();
+          totalFilesProcessed += fileBatch.length;
+          
+          // Update file count in repository incrementally
+          await this.repoRepository.update(repositoryId, {
+            fileCount: totalFilesProcessed,
           });
+
+        } catch (error) {
+          await queryRunner.rollbackTransaction();
+          this.logger.error(`Failed to process file batch starting at index ${i}:`, error);
+          throw error;
+        } finally {
+          await queryRunner.release();
         }
 
-        // Update file count
-        await queryRunner.manager.update(RepositoryEntity, repositoryId, {
-          fileCount: fileContents.length,
-        });
-
-        await queryRunner.commitTransaction();
-      } catch (error) {
-        await queryRunner.rollbackTransaction();
-        throw error;
-      } finally {
-        await queryRunner.release();
-      }
-
-      this.logger.log(`Created ${allChunks.length} chunks`);
-
-      // Step 4: Generate embeddings in batches
-      onProgress?.({
-        stage: 'embedding',
-        current: 0,
-        total: allChunks.length,
-        message: 'Generating embeddings...',
-      });
-
-      const chunkTexts = allChunks.map((c) => c.content);
-      const embeddings = await embeddingService.embedBatch(
-        chunkTexts,
-        (processed:number , total:number) => {
+        // Process chunks for this batch of files
+        if (batchChunks.length > 0) {
           onProgress?.({
             stage: 'embedding',
-            current: processed,
-            total,
-            message: `Generating embeddings: ${processed}/${total}`,
+            current: i,
+            total: fileContents.length,
+            message: `Generating embeddings for batch ${Math.floor(i / fileBatchSize) + 1}...`,
           });
+
+          const chunkTexts = batchChunks.map((c) => c.content);
+          const embeddings = await embeddingService.embedBatch(chunkTexts);
+
+          // Store chunks with embeddings in batches
+          const storeBatchSize = 50;
+          for (let j = 0; j < batchChunks.length; j += storeBatchSize) {
+            const chunkBatch = batchChunks.slice(j, j + storeBatchSize);
+            const embeddingBatch = embeddings.slice(j, j + storeBatchSize);
+
+            const values = chunkBatch.map((chunk, idx) => {
+              const embedding = embeddingBatch[idx].embedding;
+              const vectorStr = `[${embedding.join(',')}]`;
+              return {
+                fileId: chunk.fileId,
+                content: chunk.content,
+                startLine: chunk.startLine,
+                endLine: chunk.endLine,
+                embedding: vectorStr,
+                metadata: chunk.metadata,
+              };
+            });
+
+            await this.insertChunksWithEmbeddings(values);
+          }
+          
+          totalChunksCreated += batchChunks.length;
         }
-      );
-
-      // Step 5: Store chunks with embeddings
-      onProgress?.({
-        stage: 'storing',
-        current: 0,
-        total: allChunks.length,
-        message: 'Storing chunks...',
-      });
-
-      const batchSize = 100;
-      for (let i = 0; i < allChunks.length; i += batchSize) {
-        const batch = allChunks.slice(i, i + batchSize);
-        const batchEmbeddings = embeddings.slice(i, i + batchSize);
-
-        // Use raw query to insert with vector type
-        const values = batch.map((chunk, idx) => {
-          const embedding = batchEmbeddings[idx].embedding;
-          const vectorStr = `[${embedding.join(',')}]`;
-          return {
-            fileId: chunk.fileId,
-            content: chunk.content,
-            startLine: chunk.startLine,
-            endLine: chunk.endLine,
-            embedding: vectorStr,
-            metadata: chunk.metadata,
-          };
-        });
-
-        await this.insertChunksWithEmbeddings(values);
 
         onProgress?.({
-          stage: 'storing',
-          current: Math.min(i + batchSize, allChunks.length),
-          total: allChunks.length,
-          message: `Storing chunks: ${Math.min(i + batchSize, allChunks.length)}/${allChunks.length}`,
+          stage: 'parsing',
+          current: Math.min(i + fileBatchSize, fileContents.length),
+          total: fileContents.length,
+          message: `Processed ${Math.min(i + fileBatchSize, fileContents.length)}/${fileContents.length} files`,
         });
       }
 
@@ -232,12 +213,13 @@ export class IndexingService {
         indexedAt: new Date(),
       });
 
-      this.logger.log(`Indexing complete for ${owner}/${name}`);
+      this.logger.log(`Indexing complete for ${owner}/${name}: ${totalFilesProcessed} files, ${totalChunksCreated} chunks`);
 
       return {
-        filesProcessed: fileContents.length,
-        chunksCreated: allChunks.length,
+        filesProcessed: totalFilesProcessed,
+        chunksCreated: totalChunksCreated,
       };
+
     } catch (error) {
       this.logger.error(`Indexing failed for ${owner}/${name}:`, error);
 

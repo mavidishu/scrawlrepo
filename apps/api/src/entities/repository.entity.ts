@@ -36,6 +36,9 @@ export class RepositoryEntity {
   @Column({ name: 'indexed_at', type: 'timestamp', nullable: true })
   indexedAt: Date | null;
 
+  @Column({ name: 'job_id', type: 'varchar', length: 255, nullable: true })
+  jobId: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

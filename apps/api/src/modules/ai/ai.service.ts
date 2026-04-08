@@ -46,12 +46,15 @@ export class AiService {
     private readonly configService: ConfigService
   ) {
     const openAiKey = this.configService.get<string>('OPENAI_API_KEY');
+    const llmModel = this.configService.get<string>('OPENAI_MODEL') || LLM_CONFIG.MODEL;
 
     this.llm = new ChatOpenAI({
       openAIApiKey: openAiKey,
-      modelName: LLM_CONFIG.MODEL,
-      maxTokens: LLM_CONFIG.MAX_TOKENS,
+      modelName: llmModel,
       temperature: LLM_CONFIG.TEMPERATURE,
+      modelKwargs: {
+        max_completion_tokens: LLM_CONFIG.MAX_TOKENS,
+      },
     });
 
     this.embeddingService = new EmbeddingService({ apiKey: openAiKey });

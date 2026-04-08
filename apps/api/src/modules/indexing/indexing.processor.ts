@@ -19,6 +19,7 @@ export class IndexingProcessor extends WorkerHost {
     this.logger.log(`Starting indexing job for ${owner}/${name} (${repositoryId})`);
 
     try {
+      let lastProgress = -1;
       const result = await this.indexingService.indexRepository(
         repositoryId,
         owner,
@@ -28,10 +29,16 @@ export class IndexingProcessor extends WorkerHost {
           const progressPercent = Math.floor(
             (progress.current / progress.total) * 100
           );
-          await job.updateProgress(progressPercent);
+          
+          if (progressPercent !== lastProgress) {
+            await job.updateProgress(progressPercent);
+            lastProgress = progressPercent;
+          }
+          
           await job.log(`[${progress.stage}] ${progress.message}`);
         }
       );
+
 
       this.logger.log(
         `Indexing complete for ${owner}/${name}: ${result.filesProcessed} files, ${result.chunksCreated} chunks`
