@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, FormEvent } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { reposApi, QueryResponse } from '../api';
+import MarkdownRenderer from './MarkdownRenderer';
 
 interface Message {
   id: string;
@@ -200,7 +201,13 @@ function MessageBubble({ message }: { message: Message }) {
             isUser ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-900'
           }`}
         >
-          <p className="whitespace-pre-wrap">{message.content}</p>
+          {isUser ? (
+            <p className="whitespace-pre-wrap">{message.content}</p>
+          ) : (
+            <div className="prose-sm">
+              <MarkdownRenderer content={message.content} />
+            </div>
+          )}
         </div>
 
         {/* Sources */}
