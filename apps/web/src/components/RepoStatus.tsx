@@ -1,10 +1,9 @@
 interface RepoStatusProps {
   status: 'pending' | 'indexing' | 'ready' | 'failed';
   progress?: number;
-  fileCount?: number;
 }
 
-export default function RepoStatus({ status, progress, fileCount }: RepoStatusProps) {
+export default function RepoStatus({ status, progress }: RepoStatusProps) {
   if (status === 'ready') {
     return (
       <div className="flex items-center text-green-600">
