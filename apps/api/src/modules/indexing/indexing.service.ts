@@ -8,7 +8,6 @@ import { ChunkEntity } from '../../entities/chunk.entity';
 import { GitHubCrawler } from '@scrawler/crawler';
 import { CodeParser } from '@scrawler/parser';
 import { EmbeddingService } from '@scrawler/embeddings';
-import { EMBEDDING_CONFIG } from '@scrawler/shared';
 
 export interface IndexingProgress {
   stage: 'crawling' | 'parsing' | 'embedding' | 'storing';

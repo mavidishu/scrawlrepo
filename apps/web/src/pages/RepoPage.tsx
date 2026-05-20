@@ -138,7 +138,6 @@ export default function RepoPage() {
           <RepoStatus
             status={repo.status}
             progress={status?.progress}
-            fileCount={repo.fileCount}
           />
           {repo.status === 'ready' && (
             <button

@@ -173,6 +173,7 @@ export class GitHubCrawler {
       );
 
       // In some Octokit versions, data might be in different formats
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const zipData = response.data as any;
       const zip = await JSZip.loadAsync(zipData);
       
