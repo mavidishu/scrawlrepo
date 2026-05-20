@@ -157,6 +157,7 @@ export class RepoService {
         jobProgress = progress;
       } else if (typeof progress === 'object' && progress !== null) {
         // Handle object progress if needed, though we usually store a percentage number
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         jobProgress = (progress as any).percentage ?? 0;
       }
     }

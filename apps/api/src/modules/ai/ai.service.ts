@@ -159,7 +159,7 @@ export class AiService {
 
   private buildContext(chunks: ChunkSearchResult[]): string {
     return chunks
-      .map((chunk, index) => {
+      .map((chunk) => {
         return `--- File: ${chunk.filePath} (lines ${chunk.startLine}-${chunk.endLine}) ---\n${chunk.content}`;
       })
       .join('\n\n');

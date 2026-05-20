@@ -1,7 +1,8 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import ReactMarkdown from 'react-markdown';
-// @ts-ignore - react-syntax-highlighter lacks type definitions
+// @ts-expect-error - react-syntax-highlighter lacks type definitions
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-// @ts-ignore - react-syntax-highlighter lacks type definitions
+// @ts-expect-error - react-syntax-highlighter lacks type definitions
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 interface MarkdownRendererProps {
@@ -52,6 +53,7 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
         ),
 
         // Code blocks with syntax highlighting
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         code: ({ inline, className, children, ...props }: any) => {
           const match = /language-(\w+)/.exec(className || '');
           const language = match ? match[1] : 'text';

@@ -1,0 +1,206 @@
+name: Build and Lint
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  install-dependencies:
+    name: Install Dependencies
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: ['20.x']
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+
+  lint:
+    name: Lint Code
+    runs-on: ubuntu-latest
+    needs: install-dependencies
+    strategy:
+      matrix:
+        node-version: ['20.x']
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run ESLint
+        run: npm run lint --if-present
+        continue-on-error: false
+
+  build-packages:
+    name: Build Packages
+    runs-on: ubuntu-latest
+    needs: lint
+    strategy:
+      matrix:
+        node-version: ['20.x']
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build shared package
+        run: npm run build --workspace=packages/shared
+      
+      - name: Build crawler package
+        run: npm run build --workspace=packages/crawler
+      
+      - name: Build parser package
+        run: npm run build --workspace=packages/parser
+      
+      - name: Build embeddings package
+        run: npm run build --workspace=packages/embeddings
+      
+      - name: Upload package build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-build-artifacts
+          path: packages/*/dist
+          retention-days: 1
+
+  build-api:
+    name: Build API
+    runs-on: ubuntu-latest
+    needs: build-packages
+    strategy:
+      matrix:
+        node-version: ['20.x']
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Download package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: packages-build-artifacts
+          path: packages/
+      
+      - name: Build API
+        run: npm run build --workspace=apps/api
+      
+      - name: Upload API build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-build-artifacts
+          path: apps/api/dist
+          retention-days: 1
+
+  build-web:
+    name: Build Web
+    runs-on: ubuntu-latest
+    needs: lint
+    strategy:
+      matrix:
+        node-version: ['20.x']
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build Web
+        run: npm run build --workspace=apps/web
+      
+      - name: Check build output
+        run: |
+          if [ ! -d "apps/web/dist" ]; then
+            echo "Build output directory not found!"
+            exit 1
+          fi
+          echo "Build successful! Output size: $(du -sh apps/web/dist | cut -f1)"
+      
+      - name: Upload Web build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-build-artifacts
+          path: apps/web/dist
+          retention-days: 1
+
+  security-check:
+    name: Security Check
+    runs-on: ubuntu-latest
+    needs: install-dependencies
+    strategy:
+      matrix:
+        node-version: ['20.x']
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run npm audit
+        run: npm audit --audit-level=moderate
+        continue-on-error: true
+
+  build-success:
+    name: Build Success
+    runs-on: ubuntu-latest
+    needs: [lint, build-packages, build-api, build-web, security-check]
+    if: always()
+    
+    steps:
+      - name: Check build status
+        run: |
+          if [ "${{ needs.lint.result }}" == "failure" ] || \
+             [ "${{ needs.build-packages.result }}" == "failure" ] || \
+             [ "${{ needs.build-api.result }}" == "failure" ] || \
+             [ "${{ needs.build-web.result }}" == "failure" ]; then
+            echo "Build pipeline failed!"
+            exit 1
+          fi
+          echo "✅ All build checks passed successfully!"
