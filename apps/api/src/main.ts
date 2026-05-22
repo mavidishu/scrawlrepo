@@ -1,9 +1,23 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger, LogLevel } from '@nestjs/common';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // Respect LOG_LEVEL environment variable (values: error, warn, info, debug, verbose)
+  const desiredLevel = (process.env.LOG_LEVEL || 'debug').toLowerCase();
+  const levelMap: Record<string, LogLevel[]> = {
+    error: ['error'],
+    warn: ['error', 'warn'],
+    info: ['error', 'warn', 'log'],
+    debug: ['error', 'warn', 'log', 'debug'],
+    verbose: ['error', 'warn', 'log', 'debug', 'verbose'],
+  };
+  const loggerLevels: LogLevel[] = levelMap[desiredLevel] ?? levelMap.debug;
+
+  const app = await NestFactory.create(AppModule, { logger: loggerLevels });
+
+  // Small startup log about effective levels
+  Logger.log(`Effective Nest logger levels: ${loggerLevels.join(',')}`, 'Bootstrap');
 
   // Enable CORS for frontend
   app.enableCors({
