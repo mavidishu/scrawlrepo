@@ -80,14 +80,22 @@ export class AiService {
       );
     }
 
+    // Track total query time
+    const totalStart = Date.now();
+
     // Step 1: Generate query embedding
     this.logger.debug(`Generating embedding for query: "${question}"`);
+    const embedStart = Date.now();
     const queryEmbedding = await this.embeddingService.embedQuery(question);
+    const embedElapsed = Date.now() - embedStart;
+    this.logger.debug(`Embedding generation ms=${embedElapsed}`);
 
     // Step 2: Search for similar chunks using pgvector
     const chunks = await this.searchChunks(repositoryId, queryEmbedding, maxChunks);
 
     if (chunks.length === 0) {
+      const totalElapsed = Date.now() - totalStart;
+      this.logger.debug(`Query finished: total ms=${totalElapsed} (no chunks found)`);
       return {
         answer: 'I could not find any relevant code in this repository to answer your question.',
         sources: [],
@@ -107,6 +115,9 @@ export class AiService {
     );
 
     // Step 5: Return answer with sources
+    const totalElapsed = Date.now() - totalStart;
+    this.logger.debug(`Query finished: total ms=${totalElapsed}`);
+
     return {
       answer,
       sources: chunks.map((chunk) => ({
@@ -144,7 +155,10 @@ export class AiService {
       LIMIT $3
     `;
 
+    const dbStart = Date.now();
     const results = await this.dataSource.query(query, [vectorStr, repositoryId, limit]);
+    const dbElapsed = Date.now() - dbStart;
+    this.logger.debug(`searchChunks DB query ms=${dbElapsed}`);
 
     return results.map((row: Record<string, unknown>) => ({
       id: row.id as string,
@@ -193,10 +207,13 @@ Question: ${question}
 Please provide a clear, helpful answer based on the code context above.`;
 
     try {
+      const llmStart = Date.now();
       const response = await this.llm.invoke([
         new SystemMessage(systemPrompt),
         new HumanMessage(userPrompt),
       ]);
+      const llmElapsed = Date.now() - llmStart;
+      this.logger.debug(`LLM invoke ms=${llmElapsed}`);
 
       const answer = typeof response.content === 'string' 
         ? response.content 
