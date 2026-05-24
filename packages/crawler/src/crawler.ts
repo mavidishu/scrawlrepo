@@ -160,7 +160,10 @@ export class GitHubCrawler {
   ): Promise<FileContent[]> {
     const targetBranch = branch || (await this.getDefaultBranch(owner, repo));
     
-    console.log(`Downloading archive for ${owner}/${repo} (${targetBranch})...`);
+    // Instrumented: measure download + extraction time
+    const start = Date.now();
+    // eslint-disable-next-line no-console
+    console.debug(`Downloading archive for ${owner}/${repo} (${targetBranch})...`);
     
     try {
       // Download ZIP archive
@@ -172,10 +175,16 @@ export class GitHubCrawler {
         })
       );
 
+      const downloadMs = Date.now() - start;
+      // eslint-disable-next-line no-console
+      console.debug(`Downloaded archive (ms=${downloadMs}). Extracting...`);
+
       // In some Octokit versions, data might be in different formats
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const zipData = response.data as any;
+      const extractStart = Date.now();
       const zip = await JSZip.loadAsync(zipData);
+      const extractMs = Date.now() - extractStart;
       
       const files: FileContent[] = [];
       
@@ -209,11 +218,19 @@ export class GitHubCrawler {
         }
       }
 
+      // eslint-disable-next-line no-console
+      console.debug(`Archive processed: files=${files.length} downloadMs=${downloadMs} extractMs=${extractMs}`);
       return files;
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error('Failed to download or extract archive:', error);
       // Fallback to individual requests if archive fails
-      return this.getFilesContentLegacy(owner, repo, paths, targetBranch, onProgress);
+      const fallbackStart = Date.now();
+      const files = await this.getFilesContentLegacy(owner, repo, paths, targetBranch, onProgress);
+      const fallbackMs = Date.now() - fallbackStart;
+      // eslint-disable-next-line no-console
+      console.debug(`Fallback per-file fetch completed (ms=${fallbackMs})`);
+      return files;
     }
   }
 

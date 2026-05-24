@@ -45,6 +45,16 @@ export class IndexingService {
     const parser = new CodeParser();
     const embeddingService = new EmbeddingService({ apiKey: openAiKey });
 
+    const metrics: Record<string, number> = {
+      totalStart: Date.now(),
+      crawlStart: 0,
+      crawlDuration: 0,
+      fetchDuration: 0,
+      parseSaveDuration: 0,
+      embeddingDuration: 0,
+      insertDuration: 0,
+    };
+
     try {
       // Update status to indexing
       await this.repoRepository.update(repositoryId, { status: 'indexing' });
@@ -58,7 +68,10 @@ export class IndexingService {
         message: 'Fetching repository structure...',
       });
 
+      metrics.crawlStart = Date.now();
       const crawlResult = await crawler.crawlRepository(owner, name);
+      metrics.crawlDuration = Date.now() - metrics.crawlStart;
+
       const { files: fileTree, repository: repoInfo } = crawlResult;
 
       // Update default branch
@@ -66,7 +79,7 @@ export class IndexingService {
         defaultBranch: repoInfo.defaultBranch,
       });
 
-      this.logger.log(`Found ${fileTree.length} code files`);
+      this.logger.log(`Found ${fileTree.length} code files (crawl: ${metrics.crawlDuration}ms)`);
       onProgress?.({
         stage: 'crawling',
         current: 50,
@@ -76,6 +89,7 @@ export class IndexingService {
 
       // Step 2: Fetch file contents
       const filePaths = fileTree.map((f: { path:string }) => f.path);
+      const fetchStart = Date.now();
       const fileContents = await crawler.getFilesContent(
         owner,
         name,
@@ -90,8 +104,9 @@ export class IndexingService {
           });
         }
       );
+      metrics.fetchDuration = Date.now() - fetchStart;
 
-      this.logger.log(`Fetched ${fileContents.length} file contents`);
+      this.logger.log(`Fetched ${fileContents.length} file contents (fetch: ${metrics.fetchDuration}ms)`);
 
       // Step 3: Parse files, create chunks, generate embeddings, and store in batches
       this.logger.log(`Processing ${fileContents.length} files...`);
@@ -101,6 +116,7 @@ export class IndexingService {
       const fileBatchSize = 20; // Process 20 files at a time to keep transactions short
 
       for (let i = 0; i < fileContents.length; i += fileBatchSize) {
+        const batchStart = Date.now();
         const fileBatch = fileContents.slice(i, i + fileBatchSize);
         const batchChunks: Array<{
           fileId: string;
@@ -161,6 +177,8 @@ export class IndexingService {
           await queryRunner.release();
         }
 
+        metrics.parseSaveDuration += Date.now() - batchStart;
+
         // Process chunks for this batch of files
         if (batchChunks.length > 0) {
           onProgress?.({
@@ -171,11 +189,15 @@ export class IndexingService {
           });
 
           const chunkTexts = batchChunks.map((c) => c.content);
+          const embedStart = Date.now();
           const embeddings = await embeddingService.embedBatch(chunkTexts);
+          const embedElapsed = Date.now() - embedStart;
+          metrics.embeddingDuration += embedElapsed;
 
           // Store chunks with embeddings in batches
           const storeBatchSize = 50;
           for (let j = 0; j < batchChunks.length; j += storeBatchSize) {
+            const insertStart = Date.now();
             const chunkBatch = batchChunks.slice(j, j + storeBatchSize);
             const embeddingBatch = embeddings.slice(j, j + storeBatchSize);
 
@@ -193,6 +215,7 @@ export class IndexingService {
             });
 
             await this.insertChunksWithEmbeddings(values);
+            metrics.insertDuration += Date.now() - insertStart;
           }
           
           totalChunksCreated += batchChunks.length;
@@ -212,7 +235,9 @@ export class IndexingService {
         indexedAt: new Date(),
       });
 
+      metrics.totalStart = Date.now() - metrics.totalStart;
       this.logger.log(`Indexing complete for ${owner}/${name}: ${totalFilesProcessed} files, ${totalChunksCreated} chunks`);
+      this.logger.log(`Indexing timings (ms): crawl=${metrics.crawlDuration} fetch=${metrics.fetchDuration} parseSave=${metrics.parseSaveDuration} embed=${metrics.embeddingDuration} insert=${metrics.insertDuration} total=${metrics.totalStart}`);
 
       return {
         filesProcessed: totalFilesProcessed,
@@ -241,6 +266,7 @@ export class IndexingService {
       metadata: Record<string, unknown>;
     }>
   ): Promise<void> {
+    const insertStart = Date.now();
     // Use parameterized query for safety
     const values = chunks
       .map(
@@ -264,5 +290,7 @@ export class IndexingService {
     `;
 
     await this.dataSource.query(query, params);
+    const insertElapsed = Date.now() - insertStart;
+    this.logger.debug(`Inserted ${chunks.length} chunks (ms=${insertElapsed})`);
   }
 }

@@ -36,8 +36,16 @@ export class EmbeddingService {
     const batches = this.createBatches(texts);
 
     let processed = 0;
-    for (const batch of batches) {
+    let totalBatchTime = 0;
+    for (const [batchIndex, batch] of batches.entries()) {
+      const start = Date.now();
       const embeddings = await this.embeddings.embedDocuments(batch);
+      const elapsed = Date.now() - start;
+      totalBatchTime += elapsed;
+
+      // Log per-batch timing for diagnosis
+      // eslint-disable-next-line no-console
+      console.debug(`embedBatch: batch ${batchIndex + 1}/${batches.length} size=${batch.length} ms=${elapsed}`);
 
       for (let i = 0; i < batch.length; i++) {
         results.push({
@@ -50,6 +58,8 @@ export class EmbeddingService {
       onProgress?.(processed, texts.length);
     }
 
+    // eslint-disable-next-line no-console
+    console.debug(`embedBatch: total texts=${texts.length} batches=${batches.length} totalMs=${totalBatchTime}`);
     return results;
   }
 
