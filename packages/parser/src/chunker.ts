@@ -24,6 +24,11 @@ export class Chunker {
   ): CodeChunk[] {
     const lines = content.split('\n');
 
+    // If file is empty, return no chunks
+    if (content.length === 0) {
+      return [];
+    }
+
     // For small files, return as single chunk
     if (content.length <= this.maxSize) {
       return [
