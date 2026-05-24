@@ -118,7 +118,7 @@ export class IndexingService {
       for (let i = 0; i < fileContents.length; i += fileBatchSize) {
         const batchStart = Date.now();
         const fileBatch = fileContents.slice(i, i + fileBatchSize);
-        const batchChunks: Array<{
+        let batchChunks: Array<{
           fileId: string;
           content: string;
           startLine: number;
@@ -188,9 +188,17 @@ export class IndexingService {
             message: `Generating embeddings for batch ${Math.floor(i / fileBatchSize) + 1}...`,
           });
 
+          // Filter out empty or whitespace-only chunks before embedding
+          const originalChunkCount = batchChunks.length;
+          batchChunks = batchChunks.filter((c) => c.content && c.content.trim().length > 0);
+          const filteredCount = batchChunks.length;
+          if (filteredCount < originalChunkCount) {
+            this.logger.debug(`Filtered ${originalChunkCount - filteredCount} empty/whitespace chunks before embedding`);
+          }
+
           const chunkTexts = batchChunks.map((c) => c.content);
           const embedStart = Date.now();
-          const embeddings = await embeddingService.embedBatch(chunkTexts);
+          const embeddings = chunkTexts.length > 0 ? await embeddingService.embedBatch(chunkTexts) : [];
           const embedElapsed = Date.now() - embedStart;
           metrics.embeddingDuration += embedElapsed;
 
