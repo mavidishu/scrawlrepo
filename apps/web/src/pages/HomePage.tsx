@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { reposApi, Repository } from '../api';
 import RepoInput from '../components/RepoInput';
 import RepoList from '../components/RepoList';
+import ConfirmModal from '../components/ConfirmModal';
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -41,10 +42,30 @@ export default function HomePage() {
     createMutation.mutate(url);
   };
 
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
+  const [selectedRepoName, setSelectedRepoName] = useState<string | null>(null);
+
   const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this repository?')) {
-      deleteMutation.mutate(id);
+    const repo = data?.items?.find((r: Repository) => r.id === id);
+    setSelectedRepoId(id);
+    setSelectedRepoName(repo ? `${repo.owner}/${repo.name}` : null);
+    setShowDeleteModal(true);
+  };
+
+  const confirmDelete = () => {
+    if (selectedRepoId) {
+      deleteMutation.mutate(selectedRepoId);
     }
+    setShowDeleteModal(false);
+    setSelectedRepoId(null);
+    setSelectedRepoName(null);
+  };
+
+  const cancelDelete = () => {
+    setShowDeleteModal(false);
+    setSelectedRepoId(null);
+    setSelectedRepoName(null);
   };
 
   const handleSelect = (repo: Repository) => {
@@ -53,6 +74,19 @@ export default function HomePage() {
 
   return (
     <div className="space-y-8">
+      <ConfirmModal
+        isOpen={showDeleteModal}
+        title="Delete repository"
+        description={
+          selectedRepoName
+            ? `Are you sure you want to delete ${selectedRepoName}? This action cannot be undone.`
+            : 'Are you sure you want to delete this repository? This action cannot be undone.'
+        }
+        confirmText="Delete"
+        cancelText="Cancel"
+        onCancel={cancelDelete}
+        onConfirm={confirmDelete}
+      />
       {/* Hero Section */}
       <div className="text-center py-8">
         <h1 className="text-4xl font-bold text-gray-900 mb-4">
