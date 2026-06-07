@@ -7,6 +7,7 @@ import { HealthModule } from './modules/health/health.module';
 import { RepoModule } from './modules/repo/repo.module';
 import { IndexingModule } from './modules/indexing/indexing.module';
 import { AiModule } from './modules/ai/ai.module';
+import { McpModule } from './modules/mcp/mcp.module';
 
 import { RepositoryEntity } from './entities/repository.entity';
 import { FileEntity } from './entities/file.entity';
@@ -60,6 +61,7 @@ const rootDir = path.resolve(__dirname,'..','..','..');
     RepoModule,
     IndexingModule,
     AiModule,
+    McpModule,
   ],
 })
 export class AppModule {}
