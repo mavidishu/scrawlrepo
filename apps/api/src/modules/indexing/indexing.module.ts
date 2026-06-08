@@ -8,6 +8,7 @@ import { RepositoryEntity } from '../../entities/repository.entity';
 import { FileEntity } from '../../entities/file.entity';
 import { ChunkEntity } from '../../entities/chunk.entity';
 import { QUEUE_CONFIG } from '@scrawler/shared';
+import { McpModule } from '../mcp/mcp.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { QUEUE_CONFIG } from '@scrawler/shared';
     BullModule.registerQueue({
       name: QUEUE_CONFIG.INDEXING_QUEUE,
     }),
+    McpModule,
   ],
   providers: [IndexingService, IndexingProcessor],
   exports: [IndexingService],

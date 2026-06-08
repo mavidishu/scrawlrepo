@@ -4,12 +4,16 @@ import { Job } from 'bullmq';
 import { IndexingService } from './indexing.service';
 import { QUEUE_CONFIG } from '@scrawler/shared';
 import type { IndexingJobData, IndexingJobResult } from '@scrawler/shared';
+import { McpEventService } from '../mcp/mcp-event.service';
 
 @Processor(QUEUE_CONFIG.INDEXING_QUEUE)
 export class IndexingProcessor extends WorkerHost {
   private readonly logger = new Logger(IndexingProcessor.name);
 
-  constructor(private readonly indexingService: IndexingService) {
+  constructor(
+    private readonly indexingService: IndexingService,
+    private readonly mcpEventService: McpEventService,
+  ) {
     super();
   }
 
@@ -36,6 +40,17 @@ export class IndexingProcessor extends WorkerHost {
           }
           
           await job.log(`[${progress.stage}] ${progress.message}`);
+
+          // Emit a progress event to MCP event log
+          try {
+            await this.mcpEventService.logEvent('indexing.progress', {
+              repoId: repositoryId,
+              jobId: String(job.id),
+              payload: { percent: progressPercent, stage: progress.stage, message: progress.message },
+            });
+          } catch (err) {
+            this.logger.warn(`Failed to log MCP progress event: ${err?.message || err}`);
+          }
         }
       );
 
@@ -44,6 +59,17 @@ export class IndexingProcessor extends WorkerHost {
         `Indexing complete for ${owner}/${name}: ${result.filesProcessed} files, ${result.chunksCreated} chunks`
       );
 
+      // Emit completed event
+      try {
+        await this.mcpEventService.logEvent('indexing.completed', {
+          repoId: repositoryId,
+          jobId: String(job.id),
+          payload: { result },
+        });
+      } catch (err) {
+        this.logger.warn(`Failed to log MCP completed event: ${err?.message || err}`);
+      }
+
       return {
         success: true,
         filesProcessed: result.filesProcessed,
@@ -51,6 +77,17 @@ export class IndexingProcessor extends WorkerHost {
       };
     } catch (error) {
       this.logger.error(`Indexing failed for ${owner}/${name}:`, error);
+
+      // Emit failed event
+      try {
+        await this.mcpEventService.logEvent('indexing.failed', {
+          repoId: job.data.repositoryId,
+          jobId: String(job.id),
+          payload: { error: error instanceof Error ? error.message : String(error) },
+        });
+      } catch (err) {
+        this.logger.warn(`Failed to log MCP failed event: ${err?.message || err}`);
+      }
 
       return {
         success: false,

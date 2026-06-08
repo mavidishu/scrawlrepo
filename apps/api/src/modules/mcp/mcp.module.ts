@@ -7,17 +7,22 @@ import { McpService } from './mcp.service';
 import { RepoModule } from '../repo/repo.module';
 import { AiModule } from '../ai/ai.module';
 import { ApiKeyGuard } from '../../auth/api-key.guard';
+import { McpEventService } from './mcp-event.service';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { McpEventEntity } from '../../entities/mcp-event.entity';
 
 @Module({
-  imports: [RepoModule, AiModule, ConfigModule],
+  imports: [RepoModule, AiModule, ConfigModule, TypeOrmModule.forFeature([McpEventEntity])],
   controllers: [McpController],
   providers: [
     McpService,
+    McpEventService,
     ApiKeyGuard,
     {
       provide: APP_GUARD,
       useClass: ApiKeyGuard,
     },
   ],
+  exports: [McpEventService],
 })
 export class McpModule {}

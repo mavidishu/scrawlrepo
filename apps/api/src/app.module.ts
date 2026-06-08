@@ -12,6 +12,7 @@ import { McpModule } from './modules/mcp/mcp.module';
 import { RepositoryEntity } from './entities/repository.entity';
 import { FileEntity } from './entities/file.entity';
 import { ChunkEntity } from './entities/chunk.entity';
+import { McpEventEntity } from './entities/mcp-event.entity';
 
 import * as path from 'path';
 
@@ -39,7 +40,7 @@ const rootDir = path.resolve(__dirname,'..','..','..');
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
         url: configService.get<string>('DATABASE_URL'),
-        entities: [RepositoryEntity, FileEntity, ChunkEntity],
+        entities: [RepositoryEntity, FileEntity, ChunkEntity, McpEventEntity],
         synchronize: false, // Use migrations in production
         logging: configService.get<string>('NODE_ENV') !== 'production',
       }),
