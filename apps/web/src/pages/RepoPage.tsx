@@ -8,6 +8,7 @@ import ChatInterface from '../components/ChatInterface';
 export default function RepoPage() {
   const { id } = useParams<{ id: string }>();
   const [isPolling, setIsPolling] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   // Fetch repository details
   const {
@@ -54,6 +55,31 @@ export default function RepoPage() {
       refetch();
     }
   }, [status?.status, refetch]);
+
+  // Create or load a default session when repo becomes ready
+  useEffect(() => {
+    let mounted = true;
+    async function ensureSession() {
+      if (!repo || repo.status !== 'ready' || sessionId) return;
+      try {
+        // Try to list sessions and reuse the most recent one
+        const sessions = await reposApi.listSessions(repo.id);
+        if (mounted && sessions && sessions.length > 0) {
+          setSessionId(sessions[0].id);
+          return;
+        }
+
+        const res = await reposApi.createSession(repo.id);
+        if (mounted) setSessionId(res.sessionId);
+      } catch (err) {
+        // ignore - session is optional
+        console.warn('Failed to create or load chat session', err);
+      }
+    }
+
+    ensureSession();
+    return () => { mounted = false; };
+  }, [repo, sessionId]);
 
   if (isLoading) {
     return (
@@ -177,7 +203,7 @@ export default function RepoPage() {
 
       {/* Chat Interface */}
       {repo.status === 'ready' ? (
-        <ChatInterface repositoryId={repo.id} repoName={`${repo.owner}/${repo.name}`} />
+        <ChatInterface repositoryId={repo.id} repoName={`${repo.owner}/${repo.name}`} sessionId={sessionId} />
       ) : repo.status === 'indexing' || repo.status === 'pending' ? (
         <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
           <div className="animate-pulse">
