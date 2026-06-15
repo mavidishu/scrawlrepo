@@ -1,5 +1,6 @@
 import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class ApiKeyGuard implements CanActivate {
@@ -29,7 +30,12 @@ export class ApiKeyGuard implements CanActivate {
       throw new UnauthorizedException('MCP API Key not configured');
     }
 
-    if (token !== expected) {
+    // Security fix: use constant-time comparison via crypto.timingSafeEqual to prevent
+    // timing attacks that could otherwise leak the expected API key byte-by-byte.
+    const tokenBuf = Buffer.from(token);
+    const expectedBuf = Buffer.from(expected);
+    const isValid = tokenBuf.length === expectedBuf.length && crypto.timingSafeEqual(tokenBuf, expectedBuf);
+    if (!isValid) {
       throw new UnauthorizedException('Invalid API key');
     }
 
