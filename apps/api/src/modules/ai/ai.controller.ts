@@ -14,7 +14,8 @@ export class AiController {
     const result = await this.aiService.query(
       id,
       queryDto.question,
-      queryDto.maxChunks
+      queryDto.maxChunks,
+      queryDto.sessionId
     );
 
     return {

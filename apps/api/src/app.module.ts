@@ -8,11 +8,14 @@ import { RepoModule } from './modules/repo/repo.module';
 import { IndexingModule } from './modules/indexing/indexing.module';
 import { AiModule } from './modules/ai/ai.module';
 import { McpModule } from './modules/mcp/mcp.module';
+import { ChatModule } from './modules/chat.module';
 
 import { RepositoryEntity } from './entities/repository.entity';
 import { FileEntity } from './entities/file.entity';
 import { ChunkEntity } from './entities/chunk.entity';
 import { McpEventEntity } from './entities/mcp-event.entity';
+import { ChatSessionEntity } from './entities/chat-session.entity';
+import { ChatMessageEntity } from './entities/chat-message.entity';
 
 import * as path from 'path';
 
@@ -40,7 +43,7 @@ const rootDir = path.resolve(__dirname,'..','..','..');
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
         url: configService.get<string>('DATABASE_URL'),
-        entities: [RepositoryEntity, FileEntity, ChunkEntity, McpEventEntity],
+        entities: [RepositoryEntity, FileEntity, ChunkEntity, McpEventEntity, ChatSessionEntity, ChatMessageEntity],
         synchronize: false, // Use migrations in production
         logging: configService.get<string>('NODE_ENV') !== 'production',
       }),
@@ -63,6 +66,7 @@ const rootDir = path.resolve(__dirname,'..','..','..');
     IndexingModule,
     AiModule,
     McpModule,
+    ChatModule,
   ],
 })
 export class AppModule {}

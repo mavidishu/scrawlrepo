@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsInt, Min, Max, MinLength, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsInt, Min, Max, MinLength, MaxLength, IsUUID } from 'class-validator';
 
 export class QueryDto {
   @IsString()
@@ -11,4 +11,8 @@ export class QueryDto {
   @Min(1)
   @Max(20)
   maxChunks?: number = 10;
+
+  @IsOptional()
+  @IsUUID()
+  sessionId?: string;
 }

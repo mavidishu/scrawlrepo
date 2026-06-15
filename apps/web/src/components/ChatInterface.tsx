@@ -5,7 +5,7 @@ import MarkdownRenderer from './MarkdownRenderer';
 
 interface Message {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string;
   sources?: QueryResponse['sources'];
 }
@@ -13,9 +13,10 @@ interface Message {
 interface ChatInterfaceProps {
   repositoryId: string;
   repoName: string;
+  sessionId?: string | null;
 }
 
-export default function ChatInterface({ repositoryId, repoName }: ChatInterfaceProps) {
+export default function ChatInterface({ repositoryId, repoName, sessionId }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -28,8 +29,27 @@ export default function ChatInterface({ repositoryId, repoName }: ChatInterfaceP
     scrollToBottom();
   }, [messages]);
 
+  // Load session messages when sessionId is available
+  useEffect(() => {
+    let mounted = true;
+    async function load() {
+      if (!sessionId) return;
+      try {
+        const msgs = await reposApi.loadMessages(repositoryId, sessionId);
+        if (!mounted) return;
+        setMessages(
+          msgs.map((m) => ({ id: m.id, role: m.role as any, content: m.content }))
+        );
+      } catch (err) {
+        console.warn('Failed to load chat messages', err);
+      }
+    }
+    load();
+    return () => { mounted = false; };
+  }, [sessionId]);
+
   const queryMutation = useMutation({
-    mutationFn: (question: string) => reposApi.query(repositoryId, question),
+    mutationFn: (question: string) => reposApi.query(repositoryId, question, 10, sessionId || undefined),
     onSuccess: (response) => {
       setMessages((prev) => [
         ...prev,
@@ -61,16 +81,14 @@ export default function ChatInterface({ repositoryId, repoName }: ChatInterfaceP
     setInput('');
 
     // Add user message
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: Date.now().toString(),
-        role: 'user',
-        content: question,
-      },
-    ]);
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: question,
+    };
+    setMessages((prev) => [...prev, userMsg]);
 
-    // Send query
+    // Send query (server will persist if sessionId provided)
     queryMutation.mutate(question);
   };
 

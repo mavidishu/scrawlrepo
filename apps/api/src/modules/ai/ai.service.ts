@@ -8,6 +8,7 @@ import { RepositoryEntity } from '../../entities/repository.entity';
 import { ChunkEntity } from '../../entities/chunk.entity';
 import { EmbeddingService } from '@scrawler/embeddings';
 import { LLM_CONFIG } from '@scrawler/shared';
+import { ChatService } from '../chat.service';
 
 export interface QueryResult {
   answer: string;
@@ -43,6 +44,7 @@ export class AiService {
     @InjectRepository(ChunkEntity)
     private readonly chunkRepository: Repository<ChunkEntity>,
     private readonly dataSource: DataSource,
+    private readonly chatService: ChatService,
     private readonly configService: ConfigService
   ) {
     const openAiKey = this.configService.get<string>('OPENAI_API_KEY');
@@ -63,7 +65,8 @@ export class AiService {
   async query(
     repositoryId: string,
     question: string,
-    maxChunks: number = LLM_CONFIG.TOP_K_CHUNKS
+    maxChunks: number = LLM_CONFIG.TOP_K_CHUNKS,
+    sessionId?: string
   ): Promise<QueryResult> {
     // Verify repository exists and is ready
     const repository = await this.repoRepository.findOne({
@@ -106,13 +109,44 @@ export class AiService {
     // Step 3: Build context from chunks
     const context = this.buildContext(chunks);
 
+    // If sessionId provided, load recent messages to include as conversational context
+    let priorConversation = '';
+    try {
+      if (sessionId) {
+        const prior = await this.chatService.getMessages(sessionId, 200);
+        if (prior && prior.length > 0) {
+          priorConversation = prior
+            .map((m) => {
+              const prefix = m.role === 'assistant' ? 'Assistant:' : m.role === 'system' ? 'System:' : 'User:';
+              return `${prefix} ${m.content}`;
+            })
+            .join('\n');
+        }
+
+        // Persist the incoming user message to the session for canonical history
+        await this.chatService.appendMessage(sessionId, 'user', question);
+      }
+    } catch (err) {
+      this.logger.warn('Failed to load or append chat session messages', err);
+    }
+
     // Step 4: Generate answer using LLM
     const { answer, tokensUsed } = await this.generateAnswer(
       repository.name,
       repository.owner,
       question,
-      context
+      context,
+      priorConversation
     );
+
+    // Persist assistant reply when sessionId provided
+    try {
+      if (sessionId) {
+        await this.chatService.appendMessage(sessionId, 'assistant', answer, { sources: chunks.map(c => ({ filePath: c.filePath, startLine: c.startLine, endLine: c.endLine })) }, tokensUsed);
+      }
+    } catch (err) {
+      this.logger.warn('Failed to persist assistant message to chat session', err);
+    }
 
     // Step 5: Return answer with sources
     const totalElapsed = Date.now() - totalStart;
@@ -183,7 +217,8 @@ export class AiService {
     repoName: string,
     repoOwner: string,
     question: string,
-    context: string
+    context: string,
+    priorConversation: string = ''
   ): Promise<{ answer: string; tokensUsed: number }> {
     const systemPrompt = `You are a helpful code assistant analyzing the GitHub repository "${repoOwner}/${repoName}".
 
@@ -196,15 +231,10 @@ Your role is to:
 
 Important: Only use information from the provided code context. Do not make assumptions about code that isn't shown.`;
 
-    const userPrompt = `Here is the relevant code context from the repository:
+    // Include prior conversation if present (keeps reasoning coherent across turns)
+    const priorSection = priorConversation ? `Conversation history:\n${priorConversation}\n\n` : '';
 
-${context}
-
----
-
-Question: ${question}
-
-Please provide a clear, helpful answer based on the code context above.`;
+    const userPrompt = `${priorSection}Here is the relevant code context from the repository:\n\n${context}\n\n---\n\nQuestion: ${question}\n\nPlease provide a clear, helpful answer based on the code context above.`;
 
     try {
       const llmStart = Date.now();
@@ -215,8 +245,8 @@ Please provide a clear, helpful answer based on the code context above.`;
       const llmElapsed = Date.now() - llmStart;
       this.logger.debug(`LLM invoke ms=${llmElapsed}`);
 
-      const answer = typeof response.content === 'string' 
-        ? response.content 
+      const answer = typeof response.content === 'string'
+        ? response.content
         : JSON.stringify(response.content);
 
       // Estimate tokens (rough approximation)
