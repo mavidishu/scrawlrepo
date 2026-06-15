@@ -7,7 +7,7 @@ import ChatInterface from '../components/ChatInterface';
 
 export default function RepoPage() {
   const { id } = useParams<{ id: string }>();
-  const [isPolling, setIsPolling] = useState(false);
+  const [realtimeStatus, setRealtimeStatus] = useState<{ progress?: number; status?: string } | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
 
   // Fetch repository details
@@ -22,40 +22,50 @@ export default function RepoPage() {
     enabled: !!id,
   });
 
-  // Fetch status (for polling during indexing)
-  const { data: status } = useQuery({
-    queryKey: ['repo-status', id],
-    queryFn: () => reposApi.getStatus(id!),
-    enabled: !!id && isPolling,
-    refetchInterval: isPolling ? 2000 : false,
-  });
-
   // Reindex mutation
   const reindexMutation = useMutation({
     mutationFn: () => reposApi.reindex(id!),
     onSuccess: () => {
-      setIsPolling(true);
+      // refresh repo; SSE will deliver progress
       refetch();
     },
   });
 
-  // Start polling if status is indexing
+  // Open SSE stream while indexing/pending and update progress in realtime
   useEffect(() => {
+    let es: EventSource | null = null;
     if (repo?.status === 'indexing' || repo?.status === 'pending') {
-      setIsPolling(true);
-    } else {
-      setIsPolling(false);
-    }
-  }, [repo?.status]);
+      // Use API base URL from client (same origin or proxy should be configured)
+      es = new EventSource(`http://localhost:3000/api/mcp/v1/repos/${id}/events/stream`);
 
-  // Stop polling and refetch when status changes to ready
-  useEffect(() => {
-    if (status?.status === 'ready' || status?.status === 'failed') {
-      setIsPolling(false);
-      refetch();
-    }
-  }, [status?.status, refetch]);
+      es.onmessage = (e) => {
+        try {
+          const evt = JSON.parse(e.data);
+          if (evt.eventType === 'indexing.progress') {
+            const percent = evt.payload?.percent ?? evt.payload?.percent;
+            setRealtimeStatus((s) => ({ ...(s || {}), progress: percent }));
+          } else if (evt.eventType === 'indexing.completed') {
+            setRealtimeStatus({ progress: 100, status: 'ready' });
+            refetch();
+          } else if (evt.eventType === 'indexing.failed') {
+            setRealtimeStatus({ status: 'failed' });
+            refetch();
+          }
+        } catch (err) {
+          // ignore malformed events
+        }
+      };
 
+      es.onerror = () => {
+        // connection errors will try to reconnect automatically; could add backoff here
+      };
+    }
+
+    return () => {
+      if (es) es.close();
+    };
+  }, [repo?.status, id, refetch]);
+    
   // Create or load a default session when repo becomes ready
   useEffect(() => {
     let mounted = true;
@@ -80,6 +90,7 @@ export default function RepoPage() {
     ensureSession();
     return () => { mounted = false; };
   }, [repo, sessionId]);
+
 
   if (isLoading) {
     return (
@@ -162,8 +173,8 @@ export default function RepoPage() {
         </div>
         <div className="flex items-center space-x-4">
           <RepoStatus
-            status={repo.status}
-            progress={status?.progress}
+            status={realtimeStatus?.status ?? repo.status}
+            progress={realtimeStatus?.progress}
           />
           {repo.status === 'ready' && (
             <button
