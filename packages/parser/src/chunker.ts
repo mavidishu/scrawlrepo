@@ -104,9 +104,9 @@ export class Chunker {
         inBlock = blockDepth > 0;
       }
 
-      // If current chunk is too large, force a split
+      // If current chunk is too large, force a split (always split even inside blocks)
       const chunkSize = currentChunk.join('\n').length;
-      if (chunkSize >= this.maxSize && !inBlock) {
+      if (chunkSize >= this.maxSize) {
         chunks.push({
           content: currentChunk.join('\n'),
           startLine: currentStartLine,
@@ -149,6 +149,45 @@ export class Chunker {
       const line = lines[i];
       const lineSize = line.length + 1; // +1 for newline
 
+      // If a single line is longer than maxSize, flush current chunk and split the line into smaller chunks
+      if (lineSize > this.maxSize) {
+        if (currentChunk.length > 0) {
+          chunks.push({
+            content: currentChunk.join('\n'),
+            startLine,
+            endLine: i,
+            metadata: {
+              filePath,
+              language: language ?? undefined,
+              type: 'block',
+            },
+          });
+          currentChunk = [];
+          currentSize = 0;
+        }
+
+        // Split long line into parts of maxSize characters
+        let startIdx = 0;
+        while (startIdx < line.length) {
+          const part = line.slice(startIdx, startIdx + this.maxSize);
+          chunks.push({
+            content: part,
+            startLine: i + 1,
+            endLine: i + 1,
+            metadata: {
+              filePath,
+              language: language ?? undefined,
+              type: 'block',
+            },
+          });
+          startIdx += this.maxSize;
+        }
+
+        startLine = i + 2;
+        continue;
+      }
+
+      // Normal behavior: prefer targetSize but ensure we never exceed maxSize
       if (currentSize + lineSize > this.targetSize && currentChunk.length > 0) {
         // Create chunk
         chunks.push({
@@ -167,6 +206,23 @@ export class Chunker {
         currentChunk = [...overlapLines, line];
         currentSize = currentChunk.join('\n').length;
         startLine = i - overlapLines.length + 1;
+
+        // If the new current chunk somehow exceeds maxSize, force split by flushing immediately
+        if (currentSize >= this.maxSize) {
+          chunks.push({
+            content: currentChunk.join('\n'),
+            startLine,
+            endLine: i,
+            metadata: {
+              filePath,
+              language: language ?? undefined,
+              type: 'block',
+            },
+          });
+          currentChunk = [];
+          currentSize = 0;
+          startLine = i + 1;
+        }
       } else {
         currentChunk.push(line);
         currentSize += lineSize;
