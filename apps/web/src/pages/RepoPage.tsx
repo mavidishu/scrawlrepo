@@ -7,7 +7,7 @@ import ChatInterface from '../components/ChatInterface';
 
 export default function RepoPage() {
   const { id } = useParams<{ id: string }>();
-  const [realtimeStatus, setRealtimeStatus] = useState<{ progress?: number; status?: string } | null>(null);
+  const [realtimeStatus, setRealtimeStatus] = useState<{ progress?: number; status?: 'pending' | 'indexing' | 'ready' | 'failed' } | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
 
   // Fetch repository details
