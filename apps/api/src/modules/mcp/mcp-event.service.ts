@@ -2,34 +2,69 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { McpEventEntity } from '../../entities/mcp-event.entity';
+import { EventEmitter } from 'events';
 
 @Injectable()
 export class McpEventService {
   private readonly logger = new Logger(McpEventService.name);
+  private readonly emitter = new EventEmitter();
 
   constructor(
     @InjectRepository(McpEventEntity)
     private readonly repo: Repository<McpEventEntity>,
   ) {}
 
+  getEmitter() {
+    return this.emitter;
+  }
+
   async logEvent(eventType: string, opts: { repoId?: string; jobId?: string; payload?: any } = {}) {
-    const ent = this.repo.create({
-      eventType,
+    // Build a transient event payload so SSE can receive progress even if DB is unavailable
+    const transient = {
       repoId: opts.repoId,
       jobId: opts.jobId,
+      eventType,
       payload: opts.payload || {},
-      status: 'pending' as const,
-      attempts: 0,
-    });
+      createdAt: new Date(),
+    } as any;
 
-    const saved = await this.repo.save(ent);
+    // Emit immediately for real-time subscribers
+    try {
+      this.emitter.emit('mcp.event', transient);
+    } catch (err) {
+      this.logger.warn(`Failed to emit transient MCP event: ${err?.message || err}`);
+    }
 
-    // Attempt immediate delivery (best-effort)
-    this.attemptDelivery(saved).catch((err) => {
-      this.logger.warn(`Initial delivery failed for event ${saved.id}: ${err?.message || err}`);
-    });
+    // Try to persist to DB; don't fail the caller if persistence is broken
+    try {
+      const ent = this.repo.create({
+        eventType,
+        repoId: opts.repoId,
+        jobId: opts.jobId,
+        payload: opts.payload || {},
+        status: 'pending' as const,
+        attempts: 0,
+      });
 
-    return saved;
+      const saved = await this.repo.save(ent);
+
+      // Emit the saved record (includes id/timestamps) for completeness
+      try {
+        this.emitter.emit('mcp.event', saved);
+      } catch (err) {
+        this.logger.warn(`Failed to emit saved MCP event: ${err?.message || err}`);
+      }
+
+      // Attempt immediate delivery (best-effort)
+      this.attemptDelivery(saved).catch((err) => {
+        this.logger.warn(`Initial delivery failed for event ${saved.id}: ${err?.message || err}`);
+      });
+
+      return saved;
+    } catch (err) {
+      this.logger.warn(`Failed to persist MCP event, emitting transient only: ${err?.message || err}`);
+      return transient;
+    }
   }
 
   private async attemptDelivery(event: McpEventEntity) {

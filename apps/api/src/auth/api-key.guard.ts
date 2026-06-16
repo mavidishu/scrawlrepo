@@ -13,6 +13,14 @@ export class ApiKeyGuard implements CanActivate {
     }
 
     const req = context.switchToHttp().getRequest();
+
+    // Allow unauthenticated SSE stream for in-browser EventSource (can't set Authorization header)
+    // Path check is permissive to accommodate potential global prefix like /api
+    const url = (req.originalUrl || req.url || '').toString();
+    if (url.includes('/mcp/v1/repos/') && url.includes('/events/stream')) {
+      return true;
+    }
+
     const auth = (req.headers?.authorization || '') as string;
     if (!auth) {
       throw new UnauthorizedException('Missing Authorization header');
