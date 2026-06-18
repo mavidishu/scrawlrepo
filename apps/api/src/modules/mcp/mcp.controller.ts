@@ -1,10 +1,16 @@
-import { Controller, Post, Body, Get, Param, Delete, UseInterceptors, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Delete, UseInterceptors, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
 import { McpService } from './mcp.service';
 import { IndexRepoDto } from './dto/index-repo.dto';
 import { QueryDto } from './dto/query.dto';
 import { RateLimiterInterceptor } from '../../common/rate-limiter.interceptor';
+import { ApiKeyGuard } from '../../common/guards/api-key.guard';
 
+// Security fix: Apply ApiKeyGuard to enforce API key authentication on all MCP endpoints.
+// Without this guard, endpoints like repos.index, repos.list, repos/:id/query, and
+// repos/:id (DELETE) were unauthenticated, allowing any user to perform destructive
+// or resource-intensive actions (indexing, querying, deletion).
 @Controller('mcp/v1')
+@UseGuards(ApiKeyGuard)
 @UseInterceptors(RateLimiterInterceptor)
 export class McpController {
   constructor(private readonly mcpService: McpService) {}
